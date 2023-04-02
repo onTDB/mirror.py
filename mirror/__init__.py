@@ -5,7 +5,5 @@ import mirror.sync
 
 import logging
 
-packages = {}
-settings = {}
-lastsettingmodified = 0
-name = ""
+
+configPath = None

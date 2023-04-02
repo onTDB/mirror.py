@@ -1,5 +1,7 @@
 import mirror
 
+from pathlib import Path
+import json
 
 DEFAULT_CONFIG = {
     "lastsettingmodified": 111111111,
@@ -41,3 +43,10 @@ DEFAULT_CONFIG = {
         }
     }
 }
+
+def load_config(configPath: Path):
+    """Load the configuration file"""
+    config = json.loads(configPath.read_text())
+    mirror.settings = mirror.config.Settings(config)
+    
+

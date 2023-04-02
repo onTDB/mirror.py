@@ -5,8 +5,18 @@ import subprocess
 
 def ffts(package: mirror.structure.Package):
     """Sync package to mirror"""
-    if check(package.settings["fftsfile"], package.settings["src"], package.settings["dst"]):
-        command = f"""rsync -vrlptDSH --exclude="*.~tmp~" --delete-delay --delay-updates"""
+    if check(package.settings["fftsfile"], package.settings["src"], package.settings["dst"]): # If FFTS file is out of date
+        command = [
+            "rsync",
+            "-vrlptDSH",
+            "--exclude=\"*.~tmp~\"",
+            "--delete-delay",
+            "--delay-updates",
+            f'"{package.settings["src"]}/{package.settings["fftsfile"]}"',  
+            f'"{package.settings["dst"]}/{package.settings["fftsfile"]}"',
+        ]
+
+        command = " ".join(command)
         result = subprocess.run(command, shell=True, capture_output=True)
         if result.returncode == 0:
             package.setstatus("ACTIVE")
