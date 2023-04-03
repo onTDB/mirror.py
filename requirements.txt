@@ -1,2 +1,2 @@
-prompt_toolkit
+prompt_toolkit>=3.0.38
 requests

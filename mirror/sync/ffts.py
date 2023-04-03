@@ -5,15 +5,15 @@ import subprocess
 
 def ffts(package: mirror.structure.Package):
     """Sync package to mirror"""
-    if check(package.settings["fftsfile"], package.settings["src"], package.settings["dst"]): # If FFTS file is out of date
+    if check(package.settings.fftsfile, package.settings.src, package.settings.path, package.settings.dst): # If FFTS file is out of date
         command = [
             "rsync",
             "-vrlptDSH",
             "--exclude=\"*.~tmp~\"",
             "--delete-delay",
             "--delay-updates",
-            f'"{package.settings["src"]}/{package.settings["fftsfile"]}"',  
-            f'"{package.settings["dst"]}/{package.settings["fftsfile"]}"',
+            f'"{package.settings.src}/{package.settings.ffts_file}"',  
+            f'"{package.settings.dst}/{package.settings.ffts_file}"',
         ]
 
         command = " ".join(command)
@@ -23,15 +23,15 @@ def ffts(package: mirror.structure.Package):
         else:
             package.setstatus("ERROR")
 
-def check(fftsname: str, src: str, dst: str) -> bool:
+def check(fftsfile: str, src: str, srcpath: str, dst: str) -> bool:
     """Check if the mirror is up to date"""
     command = [
         "rsync",
         "--no-motd",
         "--dry-run",
         "--out-format=\"%n\"",
-        f'"{src}/{fftsname}"',
-        f'"{dst}/{fftsname}"',
+        f'"{src}::{srcpath}/{fftsfile}"',
+        f'"{dst}/{fftsfile}"',
     ]
 
     command = " ".join(command)

@@ -22,6 +22,7 @@ class Package:
     class InSettings(INP):
         hidden: bool
         src: str
+        srcpath: str
         dst: str
 
     class Link(INP):

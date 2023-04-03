@@ -36,9 +36,19 @@ DEFAULT_CONFIG = {
             ],
             "settings": {
                 "hidden": False,
-                "src": "test.org::mirror",
+                "src": "test.org",
+                "srcpath": "mirror",
                 "dst": "/disk/mirror",
-                "fftsfile": "fullfiletimelist-mirror",
+                "fftsfile": "fullfiletimelist-mirror", # only FFTS
+                "user": "mirror",
+                "password": "mirror",
+                "maintainer": "Admins <admins@examile.com>", # only ftpsync
+                "sponsor": "Example <https://example.com>", # only ftpsync
+                "country": "KR", # only ftpsync
+                "location": "Seoul", # only ftpsync
+                "throughput": "1G", # only ftpsync
+                "include": "", # only ftpsync
+                "exclude": "", # only ftpsync
             }
         }
     }
