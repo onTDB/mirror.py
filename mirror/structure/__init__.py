@@ -10,7 +10,8 @@ class INP:
     def __init__(self, inp: dict) -> None:
         self.keys = inp.keys()
         for key in inp:
-            setattr(self, key, inp[key])
+            if inp[key]:
+                setattr(self, key, inp[key])
 
     def to_dict(self) -> dict:
         return {key: getattr(self, key) for key in self.keys}
@@ -36,7 +37,7 @@ class Package:
     log: Path
     href: str
     synctype: str
-    syncrate: str
+    syncrate: int
     link: list[Link]
     settings: InSettings
 
@@ -52,7 +53,7 @@ class Package:
             self.synctype = config["sync"]
         else:
             raise ValueError(f"Sync type not in {mirror.sync.types}")
-        self.syncrate = config["syncrate"]
+        self.syncrate = self._iso8601_parser(config["syncrate"])
         self.link = []
         for link in config["link"]:
             self.link.append(self.Link(link))
@@ -63,6 +64,7 @@ class Package:
         return self.id
 
     def set_status(self, status) -> None:
+        if status == self.status: return
         statuslist = ["ACTIVE", "ERROR", "SYNC", "UNKNOWN"]
         if status in statuslist:
             self.status = status
@@ -79,7 +81,7 @@ class Package:
             "log": self.log,
             "href": self.href,
             "synctype": self.synctype,
-            "syncrate": self.syncrate,
+            "syncrate": self._iso8601_maker(self.syncrate),
             "link": [link.to_dict() for link in self.link],
             "settings": self.settings.to_dict()
         }
@@ -92,10 +94,10 @@ class Package:
         if not path.exists():
             raise FileNotFoundError(f"{path} does not exist")
     
-    def _iso8601_parser(duration_str): # ISO 8601 Parser
+    def _iso8601_parser(self, duration: str) -> int: # ISO 8601 Parser
         match = re.match(
             r'P((?P<years>\d+)Y)?((?P<months>\d+)M)?((?P<weeks>\d+)W)?((?P<days>\d+)D)?(T((?P<hours>\d+)H)?((?P<minutes>\d+)M)?((?P<seconds>\d+)S)?)?',
-            duration_str
+            duration
         ).groupdict()
         return int(match['years'] or 0)*365*24*3600 + \
             int(match['months'] or 0)*30*24*3600 + \
@@ -105,7 +107,7 @@ class Package:
             int(match['minutes'] or 0)*60 + \
             int(match['seconds'] or 0)
     
-    def _iso8601_maker(duration):
+    def _iso8601_maker(self, duration: int) -> str:
         if duration < 0:
             raise ValueError("Duration must be a positive integer.")
         dates = [365*24*3600, 30*24*3600, 7*24*3600, 24*3600, 3600, 60, 1]
@@ -130,6 +132,9 @@ class Config:
     logfolder: Path
     webroot: Path
 
+    uid: int
+    gid: int
+
     def __init__(self, config: dict) -> None:
         self.name = config["mirrorname"]
         self.lastsettingmodified = config["lastsettingmodified"]
@@ -139,6 +144,9 @@ class Config:
         self._path_check(Path(config["settings"]["webroot"]))
         self.logfolder = Path(config["settings"]["logfolder"])
         self.webroot = Path(config["settings"]["webroot"])
+
+        self.uid = config["settings"]["uid"]
+        self.gid = config["settings"]["gid"]
 
     def _path_check(self, path: Path) -> None:
         if not path.exists():

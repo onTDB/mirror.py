@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 import subprocess
 import logging
+import os
 
 SCRIPT = """#!/usr/bin/env bash\n# No, we can not deal with sh alone.\n\nset -e\nset -u\n# ERR traps should be inherited from functions too. (And command\n# substitutions and subshells and whatnot, but for us the function is\n# the important part here)\nset -E\n\n# A pipeline\'s return status is the value of the last (rightmost)\n# command to exit with a non-zero status, or zero if all commands exit\n# success fully.\nset -o pipefail\n\n# ftpsync script for Debian\n# Based losely on a number of existing scripts, written by an\n# unknown number of different people over the years.\n#\n# Copyright (C) 2008-2016 Joerg Jaspert <joerg@debian.org>\n# Copyright (C) 2016 Peter Palfrader\n#\n# This program is free software; you can redistribute it and/or\n# modify it under the terms of the GNU General Public License as\n# published by the Free Software Foundation; version 2.\n#\n# This program is distributed in the hope that it will be useful, but\n# WITHOUT ANY WARRANTY; without even the implied warranty of\n# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU\n# General Public License for more details.\n#\n# You should have received a copy of the GNU General Public License\n# along with this program; if not, write to the Free Software\n# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n\nVERSION="20180513"\n# -*- mode:sh -*-\n# vim:syn=sh\n# Little common functions\n\n# push a mirror attached to us.\n# Arguments (using an array named SIGNAL_OPTS):\n#\n# $MIRROR      - Name for the mirror, also basename for the logfile\n# $HOSTNAME    - Hostname to push to\n# $USERNAME    - Username there\n# $SSHPROTO    - Protocol version, either 1 or 2.\n# $SSHKEY      - the ssh private key file to use for this push\n# $SSHOPTS     - any other option ssh accepts, passed blindly, be careful\n# $PUSHLOCKOWN - own lockfile name to touch after stage1 in pushtype=staged\n# $PUSHTYPE    - what kind of push should be done?\n#                all    - normal, just push once with ssh backgrounded and finish\n#
   staged - staged. first push stage1, then wait for $PUSHLOCKs to appear,\n#                         then push stage2\n# $PUSHARCHIVE - what archive to sync? (Multiple mirrors behind one ssh key!)\n# $PUSHCB      - do we want a callback?\n# $PUSHKIND    - whats going on? are we doing mhop push or already stage2?\n# $FROMFTPSYNC - set to true if we run from within ftpsync.\n#\n# This function assumes that the variable LOG is set to a directory where\n# logfiles can be written to.\n# Additionally $PUSHLOCKS has to be defined as a set of space delimited strings\n# (list of "lock"files) to wait for if you want pushtype=staged\n#\n# Pushes might be done in background (for type all).\nsignal () {\n    ARGS="SIGNAL_OPTS[*]"\n    local ${!ARGS}\n\n    MIRROR=${MIRROR:-""}\n    HOSTNAME=${HOSTNAME:-""}\n    USERNAME=${USERNAME:-""}\n    SSHPROTO=${SSHPROTO:-""}\n    SSHKEY=${SSHKEY:-""}\n    SSHOPTS=${SSHOPTS:-""}\n    PUSHLOCKOWN=${PUSHLOCKOWN:-""}\n    PUSHTYPE=${PUSHTYPE:-"all"}\n    PUSHARCHIVE=${PUSHARCHIVE:-""}\n    PUSHCB=${PUSHCB:-""}\n    PUSHKIND=${PUSHKIND:-"all"}\n    FROMFTPSYNC=${FROMFTPSYNC:-"false"}\n\n    # And now get # back to space...\n    SSHOPTS=${SSHOPTS/\\#/ }\n\n    # Defaults we always want, no matter what\n    SSH_OPTIONS="-o user=${USERNAME} -o BatchMode=yes -o ServerAliveInterval=45 -o ConnectTimeout=45 -o PasswordAuthentication=no"\n\n    # If there are userdefined ssh options, add them.\n    if [[ -n ${SSH_OPTS} ]]; then\n        SSH_OPTIONS="${SSH_OPTIONS} ${SSH_OPTS}"\n    fi\n\n    # Does this machine need a special key?\n    if [[ -n ${SSHKEY} ]]; then\n        SSH_OPTIONS="${SSH_OPTIONS} -i ${SSHKEY}"\n    fi\n\n    # Does this machine have an extra own set of ssh options?\n    if [[ -n ${SSHOPTS} ]]; then\n        SSH_OPTIONS="${SSH_OPTIONS} ${SSHOPTS}"\n    fi\n\n    # Set the protocol version\n    if [[ ${SSHPROTO} -ne 1 ]] && [[ ${SSHPROTO} -ne 2 ]] && [[ ${SSHPROTO} -ne 99 ]]; then\n        # Idiots, we only want 1 or 2. Cant decide? Lets force 2.\n        SSHPROTO=2\n    fi\n\n    if [[ -n ${SSHPROTO} ]] && [[ ${SSHPROTO} -ne 99 ]]; then\n        SSH_OPTIONS="${SSH_OPTIONS} -${SSHPROTO}"\n    fi\n\n    date -u >> "${LOGDIR}/${MIRROR}.log"\n\n    PUSHARGS=""\n    # PUSHARCHIVE empty or not, we always add the sync:archive: command to transfer.\n    # Otherwise, if nothing else is added, ssh -f would not work ("no command to execute")\n    # But ftpsync does treat "sync:archive:" as the main archive, so this works nicely.\n    PUSHARGS="${PUSHARGS} sync:archive:${PUSHARCHIVE}"\n\n    # We have a callback wish, tell downstreams\n    if [[ -n ${PUSHCB} ]]; then\n        PUSHARGS="${PUSHARGS} sync:callback"\n    fi\n    # If we are running an mhop push AND our downstream is one to receive it, tell it.\n    if [[ mhop = ${PUSHKIND} ]] && [[ mhop = ${PUSHTYPE} ]]; then\n        PUSHARGS="${PUSHARGS} sync:mhop"\n    fi\n\n    if [[ all = ${PUSHTYPE} ]]; then\n        # Default normal "fire and forget" push. We background that, we do not care about the mirrors doings\n        PUSHARGS1="sync:all"\n        signal_ssh "normal" "${MIRROR}" "${HOSTNAME}" $SSH_OPTIONS "${PUSHARGS} ${PUSHARGS1}"\n    elif [[ staged = ${PUSHTYPE} ]] || [[ mhop = ${PUSHTYPE} ]]; then\n        # Want a staged push. Fine, lets do that. Not backgrounded. We care about the mirrors doings.\n        # Only send stage1 if we havent already send it. When called with stage2, we already did.\n        if [[ stage2 != ${PUSHKIND} ]]; then\n            # Step1: Do a push to only sync stage1, do not background\n            PUSHARGS1="sync:stage1"\n            signal_ssh "first stage" "${MIRROR}" "${HOSTNAME}" $SSH_OPTIONS "${PUSHARGS} ${PUSHARGS1}"\n            touch "${PUSHLOCKOWN}"\n\n            # Step2: Wait for all the other "lock"files to appear.\n            # In case we did not have all PUSHLOCKS and still continued, note it\n            # This is a little racy, especially if the other parts decide to do this\n            # at the same time, but it wont hurt more than a mail too much, so I don\'t care much\n            if ! wait_for_pushlocks ${PUSHDELAY}; then\n                msg "Failed to wait for all other mirrors. Failed ones are:" >> "${LOGDIR}/${MIRROR}.log"\n                for file in ${PUSHLOCKS}; do\n                    if [[ ! -f ${file} ]]; then\n                        msg "${file}" >> "${LOGDIR}/${MIRROR}.log"\n                        log "Missing Pushlockfile ${file} after waiting for more than ${PUSHDELAY} seconds, continuing"\n                    fi\n
@@ -22,6 +23,12 @@ fi\n            send=1\n        fi\n        if [[ $send ]]; then\n            # 
 
 def ftpsync(package: mirror.structure.Package) -> None:
     """Sync package"""
+    
+    package.set_status("SYNC")
+
+    os.setgid(mirror.conf.gid)
+    os.setuid(mirror.conf.uid)
+
     logger = logging.getLogger(f"mirror.package.{package.name}")
     tmp = Path(TemporaryDirectory().name)
     tmp.mkdir()
@@ -31,6 +38,12 @@ def ftpsync(package: mirror.structure.Package) -> None:
     command = [
         f"{tmp}/bin/ftpsync",
     ]
+    result = subprocess.run(command, shell=True, check=True)
+    if result.returncode == 0:
+        package.set_status("ACTIVE")
+    else:
+        package.set_status("ERROR")
+
     
 
 
@@ -56,18 +69,18 @@ def _config(package: mirror.structure.Package) -> str:
     config += f"RSYNC_HOST=\"{package.settings.src}\"\n"
     config += f"RSYNC_PATH=\"{package.settings.path}\"\n"
 
-    if package.settings.user and package.settings.password:
+    if "user" in dir(package.settings) and "password" in dir(package.settings):
         config += f"RSYNC_USER=\"{package.settings.user}\"\n"
         config += f"RSYNC_PASSWORD=\"{package.settings.password}\"\n"
 
-    config += f"INFO_MAINTAINER=\"{package.settings.maintainer}\"\n" if package.settings.maintainer else ""
-    config += f"INFO_SPONSOR=\"{package.settings.sponsor}\"\n" if package.settings.sponsor else ""
-    config += f"INFO_COUNTRY={package.settings.country}\n" if package.settings.country else ""
-    config += f"INFO_LOCATION=\"{package.settings.location}\"\n" if package.settings.location else ""
-    config += f"INFO_THROUGHPUT={package.settings.throughput}\n" if package.settings.throughput else ""
-    config += f"ARCH_INCLUDE=\"{package.settings.arch_include}\"\n" if package.settings.arch_include else ""
-    config += f"ARCH_EXCLUDE=\"{package.settings.arch_exclude}\"\n" if package.settings.arch_exclude else ""
-    config += f"LOGDIR=\"{package.settings.logdir}\"\n" if package.settings.logdir else mirror.conf.logdir
+    config += f"INFO_MAINTAINER=\"{package.settings.maintainer}\"\n" if "maintainer" in dir(package.settings) else ""
+    config += f"INFO_SPONSOR=\"{package.settings.sponsor}\"\n" if "sponsor" in dir(package.settings) else ""
+    config += f"INFO_COUNTRY={package.settings.country}\n" if "country" in dir(package.settings) else ""
+    config += f"INFO_LOCATION=\"{package.settings.location}\"\n" if "location" in dir(package.settings) else ""
+    config += f"INFO_THROUGHPUT={package.settings.throughput}\n" if "throughput" in dir(package.settings) else ""
+    config += f"ARCH_INCLUDE=\"{package.settings.arch_include}\"\n" if "arch_include" in dir(package.settings) else ""
+    config += f"ARCH_EXCLUDE=\"{package.settings.arch_exclude}\"\n" if "arch_exclude" in dir(package.settings) else ""
+    config += f"LOGDIR=\"{package.settings.logdir if 'logdir' in dir(package.settings) else mirror.conf.logdir}\"\n" 
 
     return config
 

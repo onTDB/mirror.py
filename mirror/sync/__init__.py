@@ -1,4 +1,4 @@
-from .ffts import ffts
-from .standalone import rsync, ftp
+from .rsync import ffts, rsync
+from .lftp import ftp
 
 synctypes = ["ffts", "rsync", "ftp", "ftpsync", "bandersnatch"]

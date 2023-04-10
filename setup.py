@@ -24,7 +24,7 @@ setuptools.setup(
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.5.0",
+    python_requires=">=3.8.0",
     install_requires=install_requires,
     entry_points={
         "console_scripts": [

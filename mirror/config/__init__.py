@@ -9,6 +9,8 @@ DEFAULT_CONFIG = {
     "settings": {
         "logfolder": "/mirror/logs",
         "webroot": "/var/www/mirror",
+        "gid": 1000,
+        "uid": 1000,
     },
     "packages": {
         "mirror": {
